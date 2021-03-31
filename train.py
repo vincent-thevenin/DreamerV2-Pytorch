@@ -101,7 +101,31 @@ random_action_dist = torch.distributions.one_hot_categorical.OneHotCategorical(
 )
 
 def gather_episode():
-    #TODO
+    with torch.no_grad():
+        while True:
+            obs = env.reset()
+            obs = transform_obs(obs)
+            episode = [obs]
+            obs = obs.cuda()
+            z_sample, h = world(None, obs, None, inference=True)
+            done = False
+            while not done:
+                # env.render()
+                a = actor(z_sample)
+                a = torch.distributions.one_hot_categorical.OneHotCategorical(
+                    logits = a
+                ).sample()
+                obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
+                obs = transform_obs(obs)
+                obs = obs.cuda()
+                episode.extend([a.cpu(), tanh(rew), done, obs.cpu()])
+                if not done:
+                    z_sample, h = world(a, obs, z_sample.reshape(-1, 1024), h, inference=True)
+                # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
+                # plt.show()
+            history.append(episode)
+            for _ in range(len(history) - history_size):
+                history.pop(0)
 
 #start gathering episode thread
 t = threading.Thread(target=gather_episode)

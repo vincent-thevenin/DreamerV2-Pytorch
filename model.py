@@ -49,7 +49,7 @@ class WorldModel(nn.Module):
             nn.Linear(512, 1)
         )
 
-        #p: (h, z) -> z_hat
+        #p: (h, z) -> g_hat
         self.gamma_predictor_mlp = nn.Sequential(
             nn.Linear(512+1024, 512),
             nn.ELU(inplace=True),
@@ -147,19 +147,55 @@ class WorldModel(nn.Module):
             z: z_t-1 (sampled not logits)
             h: h_t-1
         """
-        #TODO
+        h = self.compute_h(x.shape[0], x.device, a, h, z)
 
-        #no straight-though gradient
+        _, z_sample = self.compute_z(x, h)
+
         return z_sample, h
 
     def dream(self, a, x, z, h):
-        #TODO
+        h = self.compute_h(a.shape[0], a.device, a, h, z)
+
+        z_hat_logits = self.transition_predictor(h)
+        z_hat_sample = self.compute_z_hat_sample(z_hat_logits)
+
+        h_z = torch.cat(
+            (h,z), dim=-1
+        )
+
+        r_hat = self.r_predictor_mlp(h_z)
+        r_hat_sample = r_hat.detach()
+
+        gamma_hat = self.gamma_predictor_mlp(h_z)
+
+        gamma_hat_sample = torch.distributions.bernoulli.Bernoulli(
+            logits=gamma_hat
+        ).sample() * self.gamma
+
+        z_logits, z_sample, x_hat = None, None, None
 
         return z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, (z_hat_sample, r_hat_sample, gamma_hat_sample)
 
     def train(self, a, x, z, h):
-        #TODO
-    
+        h = self.compute_h(a.shape[0], a.device, a, h, z)
+
+        z_logits, z_sample = self.compute_z(x, h)
+
+        z_hat_logits = self.transition_predictor(h)
+
+        h_z = torch.cat(
+            (h,z), dim=-1
+        )
+        x_hat = self.compute_x_hat(h_z)
+
+        r_hat = self.r_predictor_mlp(h_z)
+
+        gamma_hat = self.gamma_predictor_mlp(h_z)
+
+        z_hat_sample = None
+        r_hat_sample = None
+        gamma_hat_sample = None
+
         return z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, (z_hat_sample, r_hat_sample, gamma_hat_sample)
 
 
@@ -224,7 +260,31 @@ class LossModel(nn.Module):
         self.nq = nq
 
     def forward(self, x, r, gamma, z_logits, z_sample, x_hat, r_hat, gamma_hat, z_hat_logits):
-        #TODO
+        x_dist = torch.distributions.normal.Normal(
+            loc=x_hat,
+            scale=1.0
+        )
+        r_dist = torch.distributions.normal.Normal(
+            loc=r_hat,
+            scale=1.0
+        )
+        gamma_dist = torch.distributions.bernoulli.Bernoulli(
+            logits=gamma_hat
+        )
+        z_hat_dist = torch.distributions.one_hot_categorical.OneHotCategorical(
+            logits=z_hat_logits.reshape(-1, 32, 32)
+        )
+        z_dist = torch.distributions.one_hot_categorical.OneHotCategorical(
+            logits=z_logits.reshape(-1, 32, 32).detach()
+        )
+
+        z_sample = z_sample.reshape(-1, 32, 32)
+
+        loss = -self.nx*x_dist.log_prob(x).mean()\
+                -self.nr*r_dist.log_prob(r).mean()\
+                -self.ng*gamma_dist.log_prob(gamma.round()).mean()\
+                -self.nt*z_hat_dist.log_prob(z_sample.detach()).mean()\
+                +self.nq*z_dist.log_prob(z_sample).mean()
 
         return loss
 
