@@ -171,7 +171,31 @@ while True:
         h_list = []
 
         ### Train world model ###
-        #TODO
+        loss_model = 0
+        for t in range(s.shape[1]):
+            z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, _ = world(
+                a[:,t],
+                s[:,t+1],
+                z[:,t],
+                h=h,
+                dream=False,
+                inference=False
+            )
+
+            loss_model += criterionModel(
+                s[:,t+1],
+                r[:,t],
+                gamma[:,t],
+                z_logits,
+                z_sample, 
+                x_hat,
+                r_hat, 
+                gamma_hat, 
+                z_hat_logits
+            )
+        loss_model.backward()
+        optim_model.step()
+        optim_model.zero_grad()
 
         ### Train actor critic ###
         #store every value to compute V since we sum backwards
