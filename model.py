@@ -15,45 +15,49 @@ class WorldModel(nn.Module):
 
         #q (1st part): (x) -> xembedded
         self.representation_model_conv = nn.Sequential(
-            #3,64,64
-            nn.Conv2d(3, 32, 3, 2), #32, 32, 32
-            nn.ELU(  self.repinplace=True),
-            nn.Conv2d(32, 64, 3, 2), #64, 16, 16
+            #1,64,64
+            nn.Conv2d(3, 32, 3, padding=1, stride=2), #32,32,32
             nn.ELU(inplace=True),
-            nn.Conv2d(64, 128, 3, 2), #128,8,8
+            nn.Conv2d(32, 64, 3, padding=1, stride=2), #64,16,16
             nn.ELU(inplace=True),
-            nn.Conv2d(128, 256, 3, 2), #256,4,4
+            nn.Conv2d(64, 128, 3, padding=1, stride=2), #128, 8, 8
             nn.ELU(inplace=True),
-            nn.Conv2d(256, 512, 4, 1), #512,1,1
+            nn.Conv2d(128, 256, 3, padding=1, stride=2), #256, 4, 4
             nn.ELU(inplace=True),
-            # #512, 1, 1
+            nn.Conv2d(256, 512, 4), #512, 1, 1
+            nn.ELU(inplace=True)
         )
         #q (2nd part): (h, xembedded) -> z
         self.representation_model_mlp = nn.Sequential(
             nn.Linear(512+512, 1024),
             nn.ELU(inplace=True),
-            nn.Linear(1024, 1024)
+            nn.Linear(1024, 1024),
+            nn.ELU(inplace=True),
+            nn.Linear(1024, 1024),
         )
 
         #p: (h) -> z_hat
         self.transition_predictor = nn.Sequential(
             nn.Linear(512, 1024),
             nn.ELU(inplace=True),
-            nn.Linear(1024, 1024)
+            nn.Linear(1024, 1024),
+            nn.ELU(inplace=True),
+            nn.Linear(1024, 1024),
         )
 
         #p: (h, z) -> r_hat
         self.r_predictor_mlp = nn.Sequential(
-            nn.Linear(512+1024, 512),
+            nn.Linear(1024+512, 256),
             nn.ELU(inplace=True),
-            nn.Linear(512, 1)
+            nn.Linear(256,1),
+            nn.Tanh()
         )
 
-        #p: (h, z) -> g_hat
+        #p: (h, z) -> z_hat
         self.gamma_predictor_mlp = nn.Sequential(
-            nn.Linear(512+1024, 512),
+            nn.Linear(1024+512, 256),
             nn.ELU(inplace=True),
-            nn.Linear(512, 1)
+            nn.Linear(256,1)
         )
 
         #p: (h,z) -> x_hat
@@ -62,13 +66,15 @@ class WorldModel(nn.Module):
             nn.ELU(inplace=True),
         )
         self.image_predictor_conv = nn.Sequential( #64, 4, 4
-            nn.ConvTranspose2d(64, 32, 3, stride=2, 1, 1), #32,8,8
+            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1), #32, 8, 8
             nn.ELU(inplace=True),
-            nn.ConvTranspose2d(32, 16, 3, stride=2, 1, 1), #16,16,16
+            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1), #16, 16, 16
             nn.ELU(inplace=True),
-            nn.ConvTranspose2d(16, 8, 3, stride=2, 1, 1), #8,32,32
+            nn.ConvTranspose2d(16, 8, 3, stride=2, padding=1, output_padding=1), #8, 32, 32
             nn.ELU(inplace=True),
-            nn.ConvTranspose2d(8, 3, 3, stride=2, 1, 1), #3,64,64
+            nn.ConvTranspose2d(8, 8, 3, stride=2, padding=1, output_padding=1), #3, 64, 64
+            nn.ELU(inplace=True),
+            nn.Conv2d(8, 3, 3, padding=1),
         )
     
     def compute_h(self, batch_size, device, a=None, h=None, z=None):
@@ -85,7 +91,8 @@ class WorldModel(nn.Module):
         if h is None: #starting new sequence
             h = torch.zeros((batch_size, 512)).to(device)
         else:
-            h = self.gru(torch.cat((z,a), dim=-1), h)
+            h = self.gru(torch.cat((z.reshape(-1, 32*32), a), dim=1), h)
+
         return h
 
     def compute_z(self, x, h):
@@ -97,16 +104,14 @@ class WorldModel(nn.Module):
             z_logit:  logits of z_t
             z_sample: z_t
         """
-        x_embbeding = self.representation_model_conv(x)
-        x_embbeding = x_embbeding.view(-1, 512)
-
-        z_logits = self.representation_model_mlp(
-            torch.cat((x_embbeding, h), dim=-1)
-        ).reshape(-1, 32, 32)
+        embedding = self.representation_model_conv(x)
+        embedding = embedding.reshape(-1, 512)
+        embedding = torch.cat((h, embedding), dim=1)
+        z_logits = self.representation_model_mlp(embedding)
         z_sample = torch.distributions.one_hot_categorical.OneHotCategorical(
-            logits=z_logits
+            logits=z_logits.reshape(-1, 32, 32)
         ).sample()
-        z_probs = torch.softmax(z_logits, dim=-1)
+        z_probs = torch.softmax(z_logits.reshape(-1, 32, 32), dim=-1)
         z_sample = z_sample + z_probs - z_probs.detach()
 
         return z_logits, z_sample
@@ -121,10 +126,9 @@ class WorldModel(nn.Module):
         z_hat_sample = torch.distributions.one_hot_categorical.OneHotCategorical(
             logits=z_hat_logits.reshape(-1, 32, 32)
         ).sample()
-        z_hat_probs = torch.softmax(z_hat_logits, dim=-1)
-        z_hat_sample = z_hat_sample + z_hat_probs - z_hat_probs.detach()
+        z_hat_probs = torch.softmax(z_hat_logits.reshape(-1, 32, 32), dim=-1)
         
-        return z_hat_sample
+        return z_hat_sample + z_hat_probs - z_hat_probs.detach()
 
     def compute_x_hat(self, h_z):
         """
@@ -133,10 +137,9 @@ class WorldModel(nn.Module):
         Out:
             x_hat: x_hat_t
         """
-        x_hat_embedding = self.x_hat_predictor_mlp(h_z)
-        x_hat_embedding = x_hat_embedding.reshape(-1, 64, 4, 4)
-
-        return self.image_predictor_conv(x_hat_embedding)
+        x_hat = self.x_hat_predictor_mlp(h_z)
+        x_hat = x_hat.reshape(-1, 64, 4, 4)
+        return self.image_predictor_conv(x_hat)
 
     #using inference
     def forward_inference(self, a, x, z, h):
@@ -149,53 +152,60 @@ class WorldModel(nn.Module):
         """
         h = self.compute_h(x.shape[0], x.device, a, h, z)
 
-        _, z_sample = self.compute_z(x, h)
-
+        embedding = self.representation_model_conv(x)
+        embedding = embedding.reshape(-1, 512)
+        embedding = torch.cat((h, embedding), dim=1)
+        z_logits = self.representation_model_mlp(embedding)
+        z_sample = torch.distributions.one_hot_categorical.OneHotCategorical(
+            logits=z_logits.reshape(-1, 32, 32)
+        ).sample()
+        #no straight-though gradient
         return z_sample, h
 
     def dream(self, a, x, z, h):
         h = self.compute_h(a.shape[0], a.device, a, h, z)
 
+        z_logits, z_sample = None, None #No z
+
         z_hat_logits = self.transition_predictor(h)
         z_hat_sample = self.compute_z_hat_sample(z_hat_logits)
 
-        h_z = torch.cat(
-            (h,z), dim=-1
-        )
+        x_hat = None
 
+        h_z = torch.cat((h, z_hat_sample.reshape(-1, 32*32)), dim=1)
         r_hat = self.r_predictor_mlp(h_z)
-        r_hat_sample = r_hat.detach()
-
         gamma_hat = self.gamma_predictor_mlp(h_z)
+
+        # r_hat_sample = torch.distributions.normal.Normal(
+        #     loc=r_hat,
+        #     scale=1.0
+        # ).sample()
+        r_hat_sample = r_hat.detach()
 
         gamma_hat_sample = torch.distributions.bernoulli.Bernoulli(
             logits=gamma_hat
-        ).sample() * self.gamma
-
-        z_logits, z_sample, x_hat = None, None, None
+        ).sample() * self.gamma #Bernoulli in {0,1}
 
         return z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, (z_hat_sample, r_hat_sample, gamma_hat_sample)
 
     def train(self, a, x, z, h):
-        h = self.compute_h(a.shape[0], a.device, a, h, z)
+        h = self.compute_h(x.shape[0], x.device, a, h, z)
 
         z_logits, z_sample = self.compute_z(x, h)
 
         z_hat_logits = self.transition_predictor(h)
+        z_hat_sample = None
 
-        h_z = torch.cat(
-            (h,z), dim=-1
-        )
-        x_hat = self.compute_x_hat(h_z)
+        h_z = torch.cat((h, z_sample.reshape(-1, 32*32)), dim=1)
 
         r_hat = self.r_predictor_mlp(h_z)
 
         gamma_hat = self.gamma_predictor_mlp(h_z)
 
-        z_hat_sample = None
-        r_hat_sample = None
-        gamma_hat_sample = None
+        x_hat = self.compute_x_hat(h_z)
 
+        r_hat_sample, gamma_hat_sample = None, None
+    
         return z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, (z_hat_sample, r_hat_sample, gamma_hat_sample)
 
 
@@ -299,7 +309,12 @@ class ActorLoss(nn.Module):
         self.anneal = 1e-5
 
     def forward(self, a, dist_a, V, ve):
-        #TODO
+        loss = -self.ns * dist_a.log_prob(a) * (V - ve).detach().squeeze(-1)\
+            -self.nd * V.squeeze(-1)\
+            -self.ne * dist_a.entropy()
+
+        self.nd = max(0, self.nd - self.anneal)
+        self.ne = max(3e-4, self.ne - self.anneal)
 
         return loss.mean()
 

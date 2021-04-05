@@ -19,7 +19,7 @@ from model import WorldModel, Actor, Critic, LossModel, ActorLoss, CriticLoss
 
 ### HYPERPARAMETERS ###
 save_path = "save.chkpt"
-env_name = #TODO
+env_name = "Qbert-v0"
 env = gym.make(env_name, frameskip = 4)
 num_actions = env.action_space.n
 
@@ -110,7 +110,7 @@ def gather_episode():
             z_sample, h = world(None, obs, None, inference=True)
             done = False
             while not done:
-                # env.render()
+                env.render()
                 a = actor(z_sample)
                 a = torch.distributions.one_hot_categorical.OneHotCategorical(
                     logits = a
@@ -137,14 +137,13 @@ while len(history) < 1:
 print("done")
 
 def act_straight_through(z_hat_sample):
-    """
-    IN:
-        z_hat_sample
-    Out:
-        a_sample: with straight through gradient
-        a_logits
-    """
-    #TODO
+    a_logits = actor(z_hat_sample)
+    a_sample = torch.distributions.one_hot_categorical.OneHotCategorical(
+        logits=a_logits
+    ).sample()
+    a_probs = torch.softmax(a_logits, dim=-1)
+    a_sample = a_sample + a_probs - a_probs.detach()
+
     return a_sample, a_logits
 
 ### DATASET ###
@@ -171,29 +170,49 @@ while True:
         h_list = []
 
         ### Train world model ###
-        loss_model = 0
-        for t in range(s.shape[1]):
-            z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, _ = world(
+        z_logit, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, _ = world(
+            a=None,
+            x=s[:,0],
+            z=None,
+            h=None
+        )
+        loss_model = criterionModel(
+            s[:,0],
+            r[:,0], #false r_0 does not exist, 0: t=1 but expect 0:t=0
+            g[:,0], #same but ok since never end of episode
+            z_logit,
+            z_sample,
+            x_hat,
+            0, #rhat
+            gamma_hat,
+            z_hat_logits
+        )
+        z_list.append(z_sample.detach())
+        h_list.append(h.detach())
+        for t in range(L):
+            z_logit, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, _ = world(
                 a[:,t],
                 s[:,t+1],
-                z[:,t],
-                h=h,
-                dream=False,
-                inference=False
+                z_sample,
+                h
             )
-
+            z_list.append(z_sample.detach())
+            h_list.append(h.detach())
             loss_model += criterionModel(
                 s[:,t+1],
-                r[:,t],
-                gamma[:,t],
-                z_logits,
-                z_sample, 
+                r[:,t], #r time array starts at 1; 0: t=1
+                g[:,t], #g time array starts at 1; 0: t=1
+                z_logit,
+                z_sample,
                 x_hat,
-                r_hat, 
-                gamma_hat, 
+                r_hat,
+                gamma_hat,
                 z_hat_logits
             )
+        
+        loss_model /= L
         loss_model.backward()
+        torch.nn.utils.clip_grad_norm_(world.parameters(), gradient_clipping)
         optim_model.step()
         optim_model.zero_grad()
 
@@ -210,13 +229,49 @@ while True:
         h = torch.cat(h_list, dim=0).detach() #get corresponding h0
         
         # store values
-        #TODO
+        for _ in range(H):
+            a_sample, a_logits = act_straight_through(z_hat_sample)
 
-        # calculate paper recursion by looping backward
-        ## start with last timestep (t=H in paper)
-        #TODO
-        ## do next stuff backward
-        #TODO
+            *_, h, (z_hat_sample, r_hat_sample, gamma_hat_sample) = world(
+                a_sample,
+                x = None,
+                z = z_hat_sample.reshape(-1, 1024),
+                h = h,
+                dream=True
+            )
+            r_hat_sample_list.append(r_hat_sample)
+            gamma_hat_sample_list.append(gamma_hat_sample)
+            z_hat_sample_list.append(z_hat_sample)
+            a_sample_list.append(a_sample)
+            a_logits_list.append(a_logits)
+
+        # calculate paper recursion by looping backward 
+        V = r_hat_sample_list[-1] + gamma_hat_sample_list[-1] * target(z_hat_sample_list[-1]) #V_H-1
+        ve = critic(z_hat_sample_list[-2].detach())
+        loss_critic = criterionCritic(V.detach(), ve)
+        loss_actor = criterionActor(
+            a_sample_list[-1],
+            torch.distributions.one_hot_categorical.OneHotCategorical(
+                logits=a_logits_list[-1]
+            ),
+            V,
+            ve.detach()
+        )
+        for t in range(H-2, -1, -1):
+            V = r_hat_sample_list[t] + gamma_hat_sample_list[t] * ((1-lamb)*target(z_hat_sample_list[t+1]) + lamb*V)
+            ve = critic(z_hat_sample_list[t].detach())
+            loss_critic += criterionCritic(V.detach(), ve)
+            loss_actor += criterionActor(
+                a_sample_list[t],
+                torch.distributions.one_hot_categorical.OneHotCategorical(
+                    logits=a_logits_list[t]
+                ),
+                V,
+                ve.detach()
+            )
+
+        loss_actor /= (H-1)
+        loss_critic /= (H-1)
 
         #update actor
         loss_actor.backward()
