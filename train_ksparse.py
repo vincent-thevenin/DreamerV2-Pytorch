@@ -23,7 +23,7 @@ from dataset import ModelDataset
 from model_accurate import WorldModel, Actor, Critic, LossModel, ActorLoss, CriticLoss
 
 K_list = [1, 4, 8, 16, 32]
-experiment_num = 1
+experiment_num = 2
 
 for K in K_list:
     ### VIZ ###
@@ -432,16 +432,17 @@ for K in K_list:
                     V,
                     ves[-1].detach()
                 )
-                for t in range(H-2, -1, -1):
-                    V = r_hat_sample_list[t] + gamma_hat_sample_list[t] * ((1-lamb)*targets[t] + lamb*V)
-                    _loss_critic, _loss_dict_critic = criterionCritic(V.detach(), ves[t])
+                c = zip(reversed(a_sample_list[:-1]), reversed(a_logits_list[:-1]), reversed(r_hat_sample_list[:-1]), reversed(gamma_hat_sample_list[:-1]), reversed(targets[:-1]), reversed(ves[:-1]))
+                for a_sample, a_logits, r_hat_sample, gamma_hat_sample, target_v, ve in c:
+                    V = r_hat_sample + gamma_hat_sample * ((1-lamb)*target_v + lamb*V)
+                    _loss_critic, _loss_dict_critic = criterionCritic(V.detach(), ve)
                     _loss_actor, _loss_dict_actor = criterionActor(
-                        a_sample_list[t],
+                        a_sample,
                         torch.distributions.one_hot_categorical.OneHotCategorical(
-                            logits=a_logits_list[t]
+                            logits=a_logits
                         ),
                         V,
-                        ves[t].detach()
+                        ve.detach()
                     )
                     loss_actor += _loss_actor
                     loss_critic += _loss_critic
@@ -541,3 +542,4 @@ for K in K_list:
     env.close()
 
 exit()
+
