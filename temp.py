@@ -24,7 +24,7 @@ fig = plt.figure(figsize=figsize, facecolor="white")
 # with open("reward_listDREAMER.pkl", "rb") as f:
 #     dre = pickle.load(f)
 
-reward_paths = [path for path in os.listdir() if "reward_listDREAMER_ksparse_K" in path and "32_" in path]
+reward_paths = [path for path in os.listdir() if "reward_listDREAMER_ksparse_K" in path]
 dre = []
 for path in reward_paths:
     n = len(os.listdir(path))
@@ -40,8 +40,8 @@ for path in reward_paths:
 #     drek2 = pickle.load(f)
 
 def get_K(path):
-    # return path.split('_')[-2].split('K')[-1]
-    return path.split('_')[-2] + '_' + path.split('_')[-1]
+    # return path.split('_')[-2] + '_' + path.split('_')[-1]
+    return path.split('_')[-2].split('K')[-1]
 
 r_dict = {}
 for path, dre_ in zip(reward_paths, dre):
