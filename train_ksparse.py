@@ -19,21 +19,19 @@ from torch.optim import Adam, SGD
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 
-from dataset import ModelDataset
+from dataset import ModelDataset, ReplayQueue
 from model_accurate import WorldModel, Actor, Critic, LossModel, ActorLoss, CriticLoss
 
 K_list = [1, 4, 8, 16, 32]
-experiment_num = 2
+experiment_id = 0
 
 for K in K_list:
-    ### VIZ ###
-    # plt.ion()
-    writer = SummaryWriter(f"runs/K{K}_{experiment_num}")
-
     ### HYPERPARAMETERS ###
     torch.manual_seed(0)
-    save_path = f"save_ksparse_K{K}_{experiment_num}.chkpt"
-    reward_path = f"reward_listDREAMER_ksparse_K{K}_{experiment_num}/.pkl"
+    save_path =        f"save_ksparse_K{K}_{experiment_id}.chkpt"
+    reward_path =      f"reward_listDREAMER_ksparse_K{K}_{experiment_id}/.pkl"
+    tensorboard_path = f"runs/K{K}_{experiment_id}"
+    prefill_path =     "prefill.pkl"
     env_name = "CartPole-v0"
     action_repeat = 4
     noop = 30
@@ -41,6 +39,7 @@ for K in K_list:
     life_done = False
     grayscale = True
     env = gym.make(env_name)
+    writer = SummaryWriter(tensorboard_path)
 
     # env = gym.envs.atari.AtariEnv(
     #           game=env_name, obs_type='image', frameskip=1,
@@ -58,9 +57,8 @@ for K in K_list:
 
     batch = 64
     L = 50 #seq len world training
-    history_size_steps = 2e4 #1e5
+    replay_capacity_steps = 2e4 #1e5
     prefill_steps = 500
-    prefill_path = "prefill.pkl"
     lr_world = 2e-4
     train_every = 16
     K = K #ksparse
@@ -136,62 +134,13 @@ for K in K_list:
         ) #1, 64, 64
         return (obs.float() / 255 - 0.5).unsqueeze(0)
 
-
-    def get_history_steps(history):
-        n = 0
-        for e in history:
-            n += (len(e) - 1) // 4
-        return max(0, n)
+    episode = []
+    replay = ReplayQueue(capacity=replay_capacity_steps)
     if os.path.isfile(prefill_path):
-        with open(prefill_path, 'rb') as f:
-            history = pickle.load(f)
-    else:
-        history = []
-    tensor_range = torch.arange(0, num_actions).unsqueeze(0)
-    random_action_dist = torch.distributions.one_hot_categorical.OneHotCategorical(
-        torch.ones((1,num_actions))
-    )
-    step_counter = [get_history_steps(history)]
-
-    def gather_episode(history):
-        rews = 0
-        with torch.no_grad():
-            while True:
-                obs = env.reset()
-                obs = env.render(mode="rgb_array").copy()
-                obs = transform_obs(obs)
-
-                episode = [obs]
-                obs = obs.cuda()
-                z_sample, h = world(None, obs, None, inference=True)
-                done = False
-                while not done:
-                    a = actor(z_sample)
-                    a = torch.distributions.one_hot_categorical.OneHotCategorical(
-                        logits = a
-                    ).sample()
-                    # while max(0, (step_counter[0] - prefill_steps)) // train_every > train_step_list[0]:
-                    #     sleep(0.1)
-                    obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
-                    rews += rew
-
-                    obs = env.render(mode="rgb_array").copy()
+        replay.load(prefill_path)
         
-                    step_counter[0] += 1
-                    obs = transform_obs(obs)
-                    episode.extend([a.cpu(), tanh(rew), done, obs])
-                    if not done:
-                        z_sample, h = world(a, obs.cuda(), z_sample.reshape(-1, 1024), h, inference=True)
-                    # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
-                    # plt.show()
-                history.append(episode)
-                rew_list.append(rews)
-                rews = 0
-                with open(reward_path, "wb") as f:
-                    pickle.dump(rew_list, f)
-                # for _ in range(len(history) - history_size):
-                while get_history_steps(history) > history_size_steps:
-                    history.pop(0)
+    tensor_range = torch.arange(0, num_actions).unsqueeze(0)
+    step_counter = [replay.num_steps]
 
     def gather_step(done, z_sample, h):
         with torch.no_grad():
@@ -209,7 +158,7 @@ for K in K_list:
                 obs = transform_obs(obs.copy())
 
                 step_counter[0] += 1
-                history[-1].extend([a.cpu(), tanh(rew), done, obs])
+                episode.extend([a.cpu(), tanh(rew), done, obs])
                 if not done:
                     z_sample, h = world(a, obs.cuda(), z_sample.reshape(-1, 1024), h, inference=True)
 
@@ -222,13 +171,12 @@ for K in K_list:
                 obs = env.render(mode="rgb_array")
                 obs = transform_obs(obs.copy())
 
-                history.append([obs])
+                replay.push(copy.deepcopy(episode)) if len(episode) > 0 else None
+                episode.clear()
+                episode.append(obs)
                 
                 z_sample, h = world(None, obs.cuda(), None, inference=True)
                 done = False
-
-                while get_history_steps(history) > history_size_steps:
-                    history.pop(0)
             
             return done, z_sample, h
 
@@ -238,26 +186,25 @@ for K in K_list:
     # t.start()
 
     print("Dataset init")
-    pbar = tqdm(total=get_history_steps(history))
+    pbar = tqdm(total=replay.num_steps)
     done = True
     z_sample_env, h_env = None, None
     rew_list = []
-    while get_history_steps(history) < prefill_steps:
+    while replay.num_steps < prefill_steps:
         done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env)
         pbar.set_postfix(
-            total=get_history_steps(history),
+            total=replay.num_steps,
         )
     print("done")
 
     if not os.path.isfile(prefill_path):
-        with open(prefill_path, 'wb') as f:
-            pickle.dump(history, f)
+        replay.save(prefill_path)
 
     # from copy import deepcopy
     # pbar = tqdm()
     # hs = get_history_steps(history)
     # hshort = deepcopy(history)
-    # while  hs < history_size_steps:
+    # while  hs < replay_capacity_steps:
     #     history += deepcopy(hshort)
     #     hs = get_history_steps(history)
     #     pbar.set_postfix(hs = hs)
@@ -279,7 +226,7 @@ for K in K_list:
             d1[k] += d2[k]
 
     ### DATASET ###
-    ds = ModelDataset(history, seq_len=L, gamma=gamma)
+    ds = ModelDataset(replay, seq_len=L, gamma=gamma)
     loader = torch.utils.data.DataLoader(
         ds,
         batch_size=batch,
@@ -485,9 +432,9 @@ for K in K_list:
                     l_world = loss_model.item(),
                     l_actor = loss_actor.item(),
                     l_critic = loss_critic.item(),
-                    len_h_e = len(history),
+                    len_h_e = len(replay.memory),
                     iternum=iternum,
-                    last_rew=sum(history[-2][2::4]),
+                    last_rew=sum(replay.memory[-1][2::4]),
                     steps=step_counter[0],
                 )
                 # print(a_logits_list[0][0].detach())
