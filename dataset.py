@@ -20,7 +20,7 @@ class ReplayQueue():
         if self.smallest_episode_length > num_steps:
             self.smallest_episode_length = num_steps
 
-        find_new_smallest = False
+        find_new_smallest = self.smallest_episode_length == 0
         while self.num_steps > self.capacity:
             num_steps = (len(self.memory[0]) - 1) // 4
             self.num_steps -= num_steps
