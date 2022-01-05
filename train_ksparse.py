@@ -31,27 +31,39 @@ for K in K_list:
     save_path =        f"save_ksparse_K{K}_{experiment_id}.chkpt"
     reward_path =      f"reward_listDREAMER_ksparse_K{K}_{experiment_id}/.pkl"
     tensorboard_path = f"runs/K{K}_{experiment_id}"
-    prefill_path =     "prefill.pkl"
-    env_name = "CartPole-v0"
+    env_name =         f"Qbert-v0" #"CartPole-v0"
+    prefill_path =     f"prefill_{env_name}.pkl"
     action_repeat = 4
     noop = 30
     screen_size = 64
     life_done = False
     grayscale = True
-    env = gym.make(env_name)
     writer = SummaryWriter(tensorboard_path)
 
-    # env = gym.envs.atari.AtariEnv(
-    #           game=env_name, obs_type='image', frameskip=1,
-    #           repeat_action_probability=0.25,
-    #           full_action_space=False)
-    # # Avoid unnecessary rendering in inner env.
-    # env._get_obs = lambda: None
-    # # Tell wrapper that the inner env has no action repeat.
-    # env.spec = gym.envs.registration.EnvSpec('NoFrameskip-v0')
-    # env = gym.wrappers.AtariPreprocessing(
-    #     env, noop, action_repeat, screen_size, life_done, grayscale
-    # )
+    env = gym.make(env_name)
+    is_atari = isinstance(env.unwrapped, gym.envs.atari.environment.AtariEnv)
+    if is_atari:
+        # setup environment for atari
+        env = gym.make(
+                id=env_name,
+                mode=None,
+                difficulty=None,
+                obs_type='grayscale' if grayscale else 'rgb',
+                frameskip=1,
+                repeat_action_probability=0.25,
+                full_action_space=False,
+                render_mode="rgb_array",
+        )
+        # Avoid unnecessary rendering in inner env.
+        env._get_obs = lambda: None
+        # # Tell wrapper that the inner env has no action repeat.
+        env.env.spec = gym.envs.registration.EnvSpec('NoFrameskip-v0')
+        env = gym.wrappers.AtariPreprocessing(
+            env, noop, action_repeat, screen_size, life_done, grayscale
+        )
+    else:
+        # create fake display
+        disp = Display().start()
 
     num_actions = env.action_space.n
 
@@ -127,12 +139,14 @@ for K in K_list:
     )
     grayscale = torchvision.transforms.Grayscale()
     def transform_obs(obs):
-        obs = resize(
-            grayscale(
-                torch.from_numpy(obs.transpose(2,0,1))
-            )
-        ) #1, 64, 64
-        return (obs.float() / 255 - 0.5).unsqueeze(0)
+        if len(obs.shape) == 2:  # already grayscale
+            obs =torch.from_numpy(obs).unsqueeze(0)
+        else:
+            obs = grayscale(
+                    torch.from_numpy(obs.transpose(2,0,1))
+                ) #1, H, W
+        obs = resize(obs)
+        return (obs.float() / 255 - 0.5).unsqueeze(0)  # 1, C, H, W
 
     episode = []
     replay = ReplayQueue(capacity=replay_capacity_steps)
@@ -154,7 +168,8 @@ for K in K_list:
                 obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
                 rew_list[-1] += rew
 
-                obs = env.render(mode="rgb_array")
+                if not is_atari:
+                    obs = env.render(mode="rgb_array")
                 obs = transform_obs(obs.copy())
 
                 step_counter[0] += 1
@@ -168,7 +183,8 @@ for K in K_list:
                 rew_list.append(0)
 
                 obs = env.reset()
-                obs = env.render(mode="rgb_array")
+                if not is_atari:
+                    obs = env.render(mode="rgb_array")
                 obs = transform_obs(obs.copy())
 
                 replay.push(copy.deepcopy(episode)) if len(episode) > 0 else None
@@ -179,11 +195,6 @@ for K in K_list:
                 done = False
             
             return done, z_sample, h
-
-    # Start gathering episode thread
-    disp = Display().start()
-    # t = threading.Thread(target=gather_episode)
-    # t.start()
 
     print("Dataset init")
     pbar = tqdm(total=replay.num_steps)
