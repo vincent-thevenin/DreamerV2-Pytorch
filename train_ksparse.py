@@ -93,7 +93,7 @@ for K in K_list:
     world = WorldModel(
         gamma,
         num_actions,
-        has_noise=experiment_type == "Noise",
+        has_noise="Noise" in experiment_type,
 	noise_std=noise_std
     ).to(device)
     actor = Actor(num_actions).to(device)
