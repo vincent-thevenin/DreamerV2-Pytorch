@@ -8,8 +8,8 @@ import os
 
 ### Parameters ###
 N = 2**14
-K_values = [8]
-is_plot_var = False
+K_values = [1, 4, 8, 16, 32]
+is_plot_var = True
 
 ### Load data ###
 plt.style.use('fivethirtyeight')
