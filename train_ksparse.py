@@ -24,7 +24,7 @@ from model_accurate import WorldModel, Actor, Critic, LossModel, ActorLoss, Crit
 
 K_list = [1, 4, 8, 16, 32]
 experiment_id = 0
-experiment_type = "Noise"  # "", "Noise"
+experiment_type = ""  # "", "Noise", "SampleAverage"
 noise_std = 0.01
 
 for K in K_list:
@@ -94,7 +94,8 @@ for K in K_list:
         gamma,
         num_actions,
         has_noise="Noise" in experiment_type,
-	noise_std=noise_std
+	    noise_std=noise_std,
+        is_sample_average="SampleAverage" in experiment_type,
     ).to(device)
     actor = Actor(num_actions).to(device)
     critic = Critic().to(device)

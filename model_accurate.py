@@ -2,12 +2,24 @@ import torch
 import torch.nn as nn
 
 class WorldModel(nn.Module):
-    def __init__(self, gamma, num_action=9, has_noise = False, noise_std = 0.1):
+    def __init__(
+        self,
+        gamma,
+        num_action=9,
+        has_noise = False,
+        noise_std = 0.1,
+        is_sample_average = False
+    ):
         super(WorldModel, self).__init__()
-        self.gamma = gamma #discount factor
+        self.gamma = gamma  # discount factor
         self.num_action = num_action
+
+        # Experiments
         self.has_noise = has_noise
         self.noise_std = noise_std
+
+        self.is_sample_average = is_sample_average
+
 
         #Recurrent Model (RSSM): ((z, a), h) -> h
         self.gru_mlp = nn.Sequential(
@@ -132,7 +144,10 @@ class WorldModel(nn.Module):
         ).sample([k])
 
         z_sample = z_sample.sum(dim=0)  # sample([k]) returned a list of k samples
-        z_sample = torch.clamp_max(z_sample, 1)
+        if not self.is_sample_average:
+            z_sample = torch.clamp_max(z_sample, 1)
+        else:
+            z_sample = z_sample / k
 
         if self.has_noise:
             z_sample += torch.randn_like(z_sample) * self.noise_std
@@ -155,7 +170,10 @@ class WorldModel(nn.Module):
         ).sample([k])
         
         z_hat_sample = z_hat_sample.sum(dim=0)  # sample([k]) returned a list of k samples
-        z_hat_sample = torch.clamp_max(z_hat_sample, 1)
+        if not self.is_sample_average:
+            z_hat_sample = torch.clamp_max(z_hat_sample, 1)
+        else:
+            z_hat_sample = z_hat_sample / k
 
         if self.has_noise:
             z_hat_sample += torch.randn_like(z_hat_sample) * self.noise_std
