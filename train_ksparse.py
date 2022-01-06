@@ -15,7 +15,7 @@ import threading
 from time import sleep, time
 from tqdm import tqdm
 import torch
-from torch.optim import Adam, SGD
+from torch.optim import Adam
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 
@@ -129,10 +129,10 @@ for K in K_list:
             criterionModel = LossModel()
             criterionActor = ActorLoss()
             criterionCritic = CriticLoss()
-            optim_model = SGD(world.parameters(), lr=lr_world, eps=adam_eps, weight_decay=decay)
-            optim_actor = SGD(actor.parameters(), lr=lr_actor, eps=adam_eps, weight_decay=decay)
-            optim_critic = SGD(critic.parameters(), lr=lr_critic, eps=adam_eps, weight_decay=decay)
-            optim_target = SGD(target.parameters())
+            optim_model = Adam(world.parameters(), lr=lr_world, eps=adam_eps, weight_decay=decay)
+            optim_actor = Adam(actor.parameters(), lr=lr_actor, eps=adam_eps, weight_decay=decay)
+            optim_critic = Adam(critic.parameters(), lr=lr_critic, eps=adam_eps, weight_decay=decay)
+            optim_target = Adam(target.parameters())
         del w
     with torch.no_grad():
         target.load_state_dict(critic.state_dict())
