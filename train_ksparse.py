@@ -25,6 +25,7 @@ from model_accurate import WorldModel, Actor, Critic, LossModel, ActorLoss, Crit
 K_list = [1, 4, 8, 16, 32]
 experiment_id = 0
 experiment_type = "Noise"  # "", "Noise"
+noise_std = 0.01
 
 for K in K_list:
     ### HYPERPARAMETERS ###
@@ -92,7 +93,8 @@ for K in K_list:
     world = WorldModel(
         gamma,
         num_actions,
-        has_noise=experiment_type == "Noise"
+        has_noise=experiment_type == "Noise",
+	noise_std=noise_std
     ).to(device)
     actor = Actor(num_actions).to(device)
     critic = Critic().to(device)
