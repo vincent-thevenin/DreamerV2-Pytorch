@@ -165,7 +165,7 @@ for K in K_list:
     tensor_range = torch.arange(0, num_actions).unsqueeze(0)
     step_counter = [replay.num_steps]
 
-    def gather_step(done, z_sample, h):
+    def gather_step(done, z_sample, h, k):
         with torch.no_grad():
             if not done: #while not done:
                 a = actor(z_sample)
@@ -184,7 +184,7 @@ for K in K_list:
                 step_counter[0] += 1
                 episode.extend([a.cpu(), tanh(rew), done, obs])
                 if not done:
-                    z_sample, h = world(a, obs.to(device), z_sample.reshape(-1, 1024), h, inference=True)
+                    z_sample, h = world(a, obs.to(device), z_sample.reshape(-1, 1024), h, inference=True, k=k)
 
                 # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
                 # plt.show()
@@ -200,7 +200,7 @@ for K in K_list:
                 episode.clear()
                 episode.append(obs)
                 
-                z_sample, h = world(None, obs.to(device), None, inference=True)
+                z_sample, h = world(None, obs.to(device), None, inference=True, k=k)
                 done = False
             
             return done, z_sample, h
@@ -211,7 +211,7 @@ for K in K_list:
     z_sample_env, h_env = None, None
     rew_list = []
     while replay.num_steps < prefill_steps:
-        done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env)
+        done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env, k=1)
         pbar.set_postfix(
             total=replay.num_steps,
         )
@@ -262,7 +262,7 @@ for K in K_list:
         pbar = tqdm(loader)
         for s, a, r, g in pbar:
             for _ in range(train_every):
-                done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env)
+                done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env, K)
             s = s.to(device)
             a = a.to(device)
             r = r.to(device)
