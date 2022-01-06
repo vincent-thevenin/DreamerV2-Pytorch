@@ -2,10 +2,12 @@ import torch
 import torch.nn as nn
 
 class WorldModel(nn.Module):
-    def __init__(self, gamma, num_action=9):
+    def __init__(self, gamma, num_action=9, has_noise = False, noise_std = 0.1):
         super(WorldModel, self).__init__()
         self.gamma = gamma #discount factor
         self.num_action = num_action
+        self.has_noise = has_noise
+        self.noise_std = noise_std
 
         #Recurrent Model (RSSM): ((z, a), h) -> h
         self.gru_mlp = nn.Sequential(
@@ -129,8 +131,11 @@ class WorldModel(nn.Module):
             logits=z_logits.reshape(-1, 32, 32)
         ).sample([k])
 
-        z_sample = z_sample.sum(dim=0)
+        z_sample = z_sample.sum(dim=0)  # sample([k]) returned a list of k samples
         z_sample = torch.clamp_max(z_sample, 1)
+
+        if self.has_noise:
+            z_sample += torch.randn_like(z_sample) * self.noise_std
 
         if has_grad:
             z_probs = torch.softmax(z_logits.reshape(-1, 32, 32), dim=-1)
@@ -149,8 +154,11 @@ class WorldModel(nn.Module):
             logits=z_hat_logits.reshape(-1, 32, 32)
         ).sample([k])
         
-        z_hat_sample = z_hat_sample.sum(dim=0)
+        z_hat_sample = z_hat_sample.sum(dim=0)  # sample([k]) returned a list of k samples
         z_hat_sample = torch.clamp_max(z_hat_sample, 1)
+
+        if self.has_noise:
+            z_hat_sample += torch.randn_like(z_hat_sample) * self.noise_std
         
         z_hat_probs = torch.softmax(z_hat_logits.reshape(-1, 32, 32), dim=-1)
         

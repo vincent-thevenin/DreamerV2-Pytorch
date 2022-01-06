@@ -24,22 +24,23 @@ from model_accurate import WorldModel, Actor, Critic, LossModel, ActorLoss, Crit
 
 K_list = [1, 4, 8, 16, 32]
 experiment_id = 0
+experiment_type = "Noise"  # "", "Noise"
 
 for K in K_list:
     ### HYPERPARAMETERS ###
     torch.manual_seed(0)
-    save_path =        f"save_ksparse_K{K}_{experiment_id}.chkpt"
-    reward_path =      f"reward_listDREAMER_ksparse_K{K}_{experiment_id}/.pkl"
-    tensorboard_path = f"runs/K{K}_{experiment_id}"
-    env_name =         f"Qbert-v0" #"CartPole-v0"
+    save_path =        f"save_ksparse_K{K}_{experiment_type}{experiment_id}.chkpt"
+    reward_path =      f"reward_listDREAMER_ksparse_K{K}_{experiment_type}{experiment_id}/.pkl"
+    tensorboard_path = f"runs/K{K}_{experiment_type}{experiment_id}"
+    env_name =         f"CartPole-v0"
     prefill_path =     f"prefill_{env_name}.pkl"
     action_repeat = 4
     noop = 30
     screen_size = 64
     life_done = False
     grayscale = True
-    writer = SummaryWriter(tensorboard_path)
 
+    writer = SummaryWriter(tensorboard_path)
     env = gym.make(env_name)
     is_atari = isinstance(env.unwrapped, gym.envs.atari.environment.AtariEnv)
     if is_atari:
@@ -87,7 +88,11 @@ for K in K_list:
 
 
     ### MODELS ###
-    world = WorldModel(gamma, num_actions).cuda()
+    world = WorldModel(
+        gamma,
+        num_actions,
+        has_noise=experiment_type == "Noise"
+    ).cuda()
     actor = Actor(num_actions).cuda()
     critic = Critic().cuda()
     target = Critic().cuda()
