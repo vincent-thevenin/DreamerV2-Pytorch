@@ -39,6 +39,7 @@ for K in K_list:
     screen_size = 64
     life_done = False
     grayscale = True
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     writer = SummaryWriter(tensorboard_path)
     env = gym.make(env_name)
@@ -92,10 +93,10 @@ for K in K_list:
         gamma,
         num_actions,
         has_noise=experiment_type == "Noise"
-    ).cuda()
-    actor = Actor(num_actions).cuda()
-    critic = Critic().cuda()
-    target = Critic().cuda()
+    ).to(device)
+    actor = Actor(num_actions).to(device)
+    critic = Critic().to(device)
+    target = Critic().to(device)
 
     criterionModel = LossModel()
     criterionActor = ActorLoss()
@@ -118,10 +119,10 @@ for K in K_list:
             criterionActor = ActorLoss(*w["criterionActor"])
         except:
             print("error loading model")
-            world = WorldModel(gamma, num_actions).cuda()
-            actor = Actor(num_actions).cuda()
-            critic = Critic().cuda()
-            target = Critic().cuda()
+            world = WorldModel(gamma, num_actions).to(device)
+            actor = Actor(num_actions).to(device)
+            critic = Critic().to(device)
+            target = Critic().to(device)
             criterionModel = LossModel()
             criterionActor = ActorLoss()
             criterionCritic = CriticLoss()
@@ -180,7 +181,7 @@ for K in K_list:
                 step_counter[0] += 1
                 episode.extend([a.cpu(), tanh(rew), done, obs])
                 if not done:
-                    z_sample, h = world(a, obs.cuda(), z_sample.reshape(-1, 1024), h, inference=True)
+                    z_sample, h = world(a, obs.to(device), z_sample.reshape(-1, 1024), h, inference=True)
 
                 # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
                 # plt.show()
@@ -196,7 +197,7 @@ for K in K_list:
                 episode.clear()
                 episode.append(obs)
                 
-                z_sample, h = world(None, obs.cuda(), None, inference=True)
+                z_sample, h = world(None, obs.to(device), None, inference=True)
                 done = False
             
             return done, z_sample, h
@@ -259,10 +260,10 @@ for K in K_list:
         for s, a, r, g in pbar:
             for _ in range(train_every):
                 done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env)
-            s = s.cuda()
-            a = a.cuda()
-            r = r.cuda()
-            g = g.cuda()
+            s = s.to(device)
+            a = a.to(device)
+            r = r.to(device)
+            g = g.to(device)
             z_list = []
             h_list = []
             K = max(round(K * (1 - step_counter[0] / 2_000_000)), 1)
