@@ -29,7 +29,8 @@ class ReplayQueue():
                 find_new_smallest = True
         
         if find_new_smallest:
-            for e in self.memory:
+            self.smallest_episode_length = (len(self.memory[0]) - 1) // 4
+            for e in self.memory[1:]:
                 self.smallest_episode_length = min(self.smallest_episode_length, (len(e) - 1) // 4)
 
     def load(self, path):
