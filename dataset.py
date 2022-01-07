@@ -68,6 +68,7 @@ class ModelDataset(Dataset):
         return len(self.replay.memory)
 
     def __getitem__(self, idx):
+        idx = idx % len(self.replay.memory)
         episode = self.replay.memory[idx]
 
         # idx_sample = np.random.randint(0, (len(episode)-1)//4) #sample random part of episode
