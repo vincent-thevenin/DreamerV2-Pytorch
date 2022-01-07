@@ -1,5 +1,6 @@
 absl-py==1.0.0
 ale-py==0.7.3
+brokenaxes==0.5.0
 cachetools==4.2.4
 certifi==2021.10.8
 charset-normalizer==2.0.9
