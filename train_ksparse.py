@@ -165,43 +165,44 @@ for K in K_list:
     tensor_range = torch.arange(0, num_actions).unsqueeze(0)
     step_counter = [replay.num_steps]
 
-    def gather_step(done, z_sample, h, k):
+    def gather_step(done, z_sample, h, k, train_every=1):
         with torch.no_grad():
-            if not done: #while not done:
-                a = actor(z_sample)
-                a = torch.distributions.one_hot_categorical.OneHotCategorical(
-                    logits = a
-                ).sample()
-                # while max(0, (step_counter[0] - prefill_steps)) // train_every > train_step_list[0]:
-                #     sleep(0.1)
-                obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
-                rew_list[-1] += rew
+            for _ in train_every:
+                if not done: #while not done:
+                    a = actor(z_sample)
+                    a = torch.distributions.one_hot_categorical.OneHotCategorical(
+                        logits = a
+                    ).sample()
+                    # while max(0, (step_counter[0] - prefill_steps)) // train_every > train_step_list[0]:
+                    #     sleep(0.1)
+                    obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
+                    rew_list[-1] += rew
 
-                if not is_atari:
-                    obs = env.render(mode="rgb_array")
-                obs = transform_obs(obs.copy())
+                    if not is_atari:
+                        obs = env.render(mode="rgb_array")
+                    obs = transform_obs(obs.copy())
 
-                step_counter[0] += 1
-                episode.extend([a.cpu(), tanh(rew), done, obs])
-                if not done:
-                    z_sample, h = world(a, obs.to(device), z_sample.reshape(-1, 1024), h, inference=True, k=k)
+                    step_counter[0] += 1
+                    episode.extend([a.cpu(), tanh(rew), done, obs])
+                    if not done:
+                        z_sample, h = world(a, obs.to(device), z_sample.reshape(-1, 1024), h, inference=True, k=k)
 
-                # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
-                # plt.show()
-            else:
-                rew_list.append(0)
+                    # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
+                    # plt.show()
+                else:
+                    rew_list.append(0)
 
-                obs = env.reset()
-                if not is_atari:
-                    obs = env.render(mode="rgb_array")
-                obs = transform_obs(obs.copy())
+                    obs = env.reset()
+                    if not is_atari:
+                        obs = env.render(mode="rgb_array")
+                    obs = transform_obs(obs.copy())
 
-                replay.push(copy.deepcopy(episode)) if len(episode) > 0 else None
-                episode.clear()
-                episode.append(obs)
-                
-                z_sample, h = world(None, obs.to(device), None, inference=True, k=k)
-                done = False
+                    replay.push(copy.deepcopy(episode)) if len(episode) > 0 else None
+                    episode.clear()
+                    episode.append(obs)
+                    
+                    z_sample, h = world(None, obs.to(device), None, inference=True, k=k)
+                    done = False
             
             return done, z_sample, h
 
@@ -261,8 +262,14 @@ for K in K_list:
     while step_counter[0] < 2_000_000:
         pbar = tqdm(loader)
         for s, a, r, g in pbar:
-            for _ in range(train_every):
-                done, z_sample_env, h_env = gather_step(done, z_sample_env, h_env, K)
+            done, z_sample_env, h_env = gather_step(
+                done,
+                z_sample_env,
+                h_env,
+                K,
+                train_every=train_every
+            )
+            
             s = s.to(device)
             a = a.to(device)
             r = r.to(device)
