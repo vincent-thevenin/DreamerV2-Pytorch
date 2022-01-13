@@ -167,7 +167,7 @@ for K in K_list:
 
     def gather_step(done, z_sample, h, k, train_every=1):
         with torch.no_grad():
-            for _ in train_every:
+            for _ in range(train_every):
                 if not done: #while not done:
                     a = actor(z_sample)
                     a = torch.distributions.one_hot_categorical.OneHotCategorical(
