@@ -58,15 +58,15 @@ for k, v in r_dict.items():
     r_var[k] = np.var(v, axis=0)
 
 
-min_l = min([len(r) for r in dre])
+max_l = max([len(r) for r in dre])
 for k, v in r_mean.items():
-    r_mean[k] = uniform_filter1d(v[:min_l], size=N)
+    r_mean[k] = uniform_filter1d(v, size=N)
 for k, v in r_var.items():
-    r_var[k] = uniform_filter1d(v[:min_l], size=N)
+    r_var[k] = uniform_filter1d(v, size=N)
 
 
 
-bax = brokenaxes(xlims=((0, 10000), (10000 , min_l+1)), hspace=.05)
+bax = brokenaxes(xlims=((0, 10000), (10000 , max_l)), hspace=.05)
 
 for k, v in r_mean.items():
     bax.plot(v, label="K"+str(k))
