@@ -23,6 +23,14 @@ def get_K(path):
     # path in format: 'reward_listDREAMER_ksparse_K{K}_{experiment_name}'
     return path.split('_')[-2].split('K')[-1]
 
+def remove_digit_from_string(string):
+    return ''.join([i for i in string if not i.isdigit()])
+
+def get_K_and_category(path):
+    # path in format: 'reward_listDREAMER_ksparse_K{K}_{experiment_name}'
+    category = remove_digit_from_string(path.split('_')[-1])
+    return path.split('_')[-2].split('K')[-1] + ''.join(['_' if len(category) > 1 else '', category])
+
 def get_experiment_name(path):
     # path in format: 'reward_listDREAMER_ksparse_K{K}_{experiment_name}'
     return path.split('_')[-2][1:] + '_' + path.split('_')[-1]
@@ -36,7 +44,7 @@ for path in reward_paths:
         with open(os.path.join(path, str(i) + '.pkl'), 'rb') as f:
             dre[-1].extend(pickle.load(f))
 
-get_name = get_K if is_plot_var else get_experiment_name
+get_name = get_K_and_category if is_plot_var else get_experiment_name
 r_dict = {}
 
 for path, dre_ in zip(reward_paths, dre):
@@ -66,7 +74,7 @@ for k, v in r_var.items():
 
 
 
-bax = brokenaxes(xlims=((0, 10000), (10000 , max_l)), hspace=.05)
+bax = brokenaxes()#xlims=((0, 10000), (10000 , max_l)), hspace=.05)
 
 for k, v in r_mean.items():
     bax.plot(v, label="K"+str(k))
