@@ -74,6 +74,7 @@ for K in K_list:
     L = 50 #seq len world training
     replay_capacity_steps = 2e4 #1e5
     prefill_steps = 500
+    max_steps = 200_000_000/action_repeat if env_name == "Qbert-v0" else 2_000_000
     lr_world = 2e-4
     train_every = 16
     K = K #ksparse
@@ -259,7 +260,7 @@ for K in K_list:
 
     iternum = 0
     start = time()
-    while step_counter[0] < 2_000_000:
+    while step_counter[0] < max_steps:
         pbar = tqdm(loader)
         for s, a, r, g in pbar:
             done, z_sample_env, h_env = gather_step(
@@ -276,14 +277,14 @@ for K in K_list:
             g = g.to(device)
             z_list = []
             h_list = []
-            K = max(round(K * (1 - step_counter[0] / 2_000_000)), 1)
+            K = max(round(K * (1 - step_counter[0] / max_steps)), 1)
 
             ### Train world model ###
             z_logit, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, _ = world(
                 a=None,
                 x=s[:,0],
                 z=None,
-                k= K, # - int(step_counter[0] // (2_000_000/K)),
+                k= K, # - int(step_counter[0] // (max_steps/K)),
                 h=None
             )
             loss_model, loss_dict_model = criterionModel(
