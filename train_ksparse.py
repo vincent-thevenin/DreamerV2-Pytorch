@@ -177,7 +177,7 @@ for K in K_list:
                     # while max(0, (step_counter[0] - prefill_steps)) // train_every > train_step_list[0]:
                     #     sleep(0.1)
                     obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
-                    rew_list[-1] += rew
+                    rew_list[-1].append(rew)
 
                     if not is_atari:
                         obs = env.render(mode="rgb_array")
@@ -191,7 +191,7 @@ for K in K_list:
                     # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
                     # plt.show()
                 else:
-                    rew_list.append(0)
+                    rew_list.append([])
 
                     obs = env.reset()
                     if not is_atari:
