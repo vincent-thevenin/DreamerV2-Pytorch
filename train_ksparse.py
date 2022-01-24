@@ -74,6 +74,7 @@ for K in K_list:
     L = 50 #seq len world training
     replay_capacity_steps = 2e4 #1e5
     prefill_steps = 500
+    max_steps = 200_000_000/action_repeat if env_name == "Qbert-v0" else 2_000_000
     lr_world = 2e-4
     train_every = 16
     K = K #ksparse
@@ -176,7 +177,7 @@ for K in K_list:
                     # while max(0, (step_counter[0] - prefill_steps)) // train_every > train_step_list[0]:
                     #     sleep(0.1)
                     obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
-                    rew_list[-1] += rew
+                    rew_list[-1].append(rew)
 
                     if not is_atari:
                         obs = env.render(mode="rgb_array")
@@ -190,7 +191,7 @@ for K in K_list:
                     # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
                     # plt.show()
                 else:
-                    rew_list.append(0)
+                    rew_list.append([])
 
                     obs = env.reset()
                     if not is_atari:
@@ -259,7 +260,7 @@ for K in K_list:
 
     iternum = 0
     start = time()
-    while step_counter[0] < 2_000_000:
+    while step_counter[0] < max_steps:
         pbar = tqdm(loader)
         for s, a, r, g in pbar:
             done, z_sample_env, h_env = gather_step(
@@ -276,14 +277,14 @@ for K in K_list:
             g = g.to(device)
             z_list = []
             h_list = []
-            K = max(round(K * (1 - step_counter[0] / 2_000_000)), 1)
+            K = max(round(K * (1 - step_counter[0] / max_steps)), 1)
 
             ### Train world model ###
             z_logit, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, _ = world(
                 a=None,
                 x=s[:,0],
                 z=None,
-                k= K, # - int(step_counter[0] // (2_000_000/K)),
+                k= K, # - int(step_counter[0] // (max_steps/K)),
                 h=None
             )
             loss_model, loss_dict_model = criterionModel(

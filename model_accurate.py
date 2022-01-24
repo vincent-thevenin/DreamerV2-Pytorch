@@ -369,8 +369,8 @@ class ActorLoss(nn.Module):
         loss_st = (-self.nd * V.squeeze(-1)).mean()
         loss_e = (-self.ne * dist_a.entropy()).mean()
 
-        self.nd = max(0, self.nd - self.anneal)
-        self.ne = max(3e-4, self.ne - self.anneal)
+        # self.nd = max(0, self.nd - self.anneal)
+        # self.ne = max(3e-4, self.ne - self.anneal)
 
         loss = loss_rf + loss_st + loss_e
 
