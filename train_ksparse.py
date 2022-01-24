@@ -29,7 +29,6 @@ noise_std = 0.01
 
 for K in K_list:
     ### HYPERPARAMETERS ###
-    torch.manual_seed(0)
     save_path =        f"save_ksparse_K{K}_{experiment_type}{experiment_id}.chkpt"
     reward_path =      f"reward_listDREAMER_ksparse_K{K}_{experiment_type}{experiment_id}/.pkl"
     tensorboard_path = f"runs/K{K}_{experiment_type}{experiment_id}"
