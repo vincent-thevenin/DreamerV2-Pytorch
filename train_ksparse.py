@@ -352,119 +352,127 @@ for K in K_list:
             ### Train actor critic ###
             with Timer("Actor Critic", True):
                 if step_counter[0] > 0:
-                    #store every value to compute V since we sum backwards
-                    r_hat_sample_list = []
-                    gamma_hat_sample_list = []
-                    a_sample_list = []
-                    a_logits_list = []
+                    with autocast(enabled=True):
+                        #store every value to compute V since we sum backwards
+                        r_hat_sample_list = []
+                        gamma_hat_sample_list = []
+                        a_sample_list = []
+                        a_logits_list = []
 
-                    z_hat_sample = z_sample.reshape(-1, *z_sample.shape[2:]).detach() #convert all z to z0, squash time dim
-                    z_hat_sample_list = [z_hat_sample]
+                        z_hat_sample = z_sample.reshape(-1, *z_sample.shape[2:]).detach() #convert all z to z0, squash time dim
+                        z_hat_sample_list = [z_hat_sample]
 
-                    h = h.reshape(-1, *h.shape[2:]).detach() #get corresponding h0
-                    
-                    # store values
-                    for _ in range(H):
-                        a_sample, a_logits = act_straight_through(z_hat_sample)
+                        h = h.reshape(-1, *h.shape[2:]).detach() #get corresponding h0
+                        
+                        # store values
+                        for _ in range(H):
+                            a_sample, a_logits = act_straight_through(z_hat_sample)
 
-                        *_, h, (z_hat_sample, r_hat_sample, gamma_hat_sample) = world(
-                            a_sample,
-                            x = None,
-                            z = z_hat_sample.reshape(-1, 1024),
-                            k = K,
-                            h = h,
-                            dream=True
-                        )
-                        r_hat_sample_list.append(r_hat_sample)
-                        gamma_hat_sample_list.append(gamma_hat_sample)
-                        z_hat_sample_list.append(z_hat_sample)
-                        a_sample_list.append(a_sample)
-                        a_logits_list.append(a_logits)
+                            *_, h, (z_hat_sample, r_hat_sample, gamma_hat_sample) = world(
+                                a_sample,
+                                x = None,
+                                z = z_hat_sample.reshape(-1, 1024),
+                                k = K,
+                                h = h,
+                                dream=True
+                            )
+                            r_hat_sample_list.append(r_hat_sample)
+                            gamma_hat_sample_list.append(gamma_hat_sample)
+                            z_hat_sample_list.append(z_hat_sample)
+                            a_sample_list.append(a_sample)
+                            a_logits_list.append(a_logits)
 
-                    # calculate paper recursion by looping backward
-                    # calculate all targets
-                    targets = target(torch.cat(z_hat_sample_list[1:], dim=0))
-                    targets = targets.chunk(len(z_hat_sample_list) - 1, dim=0)
+                        # calculate paper recursion by looping backward
+                        # calculate all targets
+                        targets = target(torch.cat(z_hat_sample_list[1:], dim=0))
+                        targets = targets.chunk(len(z_hat_sample_list) - 1, dim=0)
 
-                    ves = critic(torch.cat(z_hat_sample_list[:-1], dim=0).detach())
-                    ves = ves.chunk(len(z_hat_sample_list) - 1, dim=0)
+                        ves = critic(torch.cat(z_hat_sample_list[:-1], dim=0).detach())
+                        ves = ves.chunk(len(z_hat_sample_list) - 1, dim=0)
 
 
-                    # V = r_hat_sample_list[-1] + gamma_hat_sample_list[-1] * target(z_hat_sample_list[-1]) #V_H-1
-                    # ve = critic(z_hat_sample_list[-2].detach())
-                    # loss_critic = criterionCritic(V.detach(), ve)
-                    # loss_actor = criterionActor(
-                    #     a_sample_list[-1],
-                    #     torch.distributions.one_hot_categorical.OneHotCategorical(
-                    #         logits=a_logits_list[-1]
-                    #     ),
-                    #     V,
-                    #     ve.detach()
-                    # )
-                    # for t in range(H-2, -1, -1):
-                    #     V = r_hat_sample_list[t] + gamma_hat_sample_list[t] * ((1-lamb)*target(z_hat_sample_list[t+1]) + lamb*V)
-                    #     ve = critic(z_hat_sample_list[t].detach())
-                    #     loss_critic += criterionCritic(V.detach(), ve)
-                    #     loss_actor += criterionActor(
-                    #         a_sample_list[t],
-                    #         torch.distributions.one_hot_categorical.OneHotCategorical(
-                    #             logits=a_logits_list[t]
-                    #         ),
-                    #         V,
-                    #         ve.detach()
-                    #     )
+                        # V = r_hat_sample_list[-1] + gamma_hat_sample_list[-1] * target(z_hat_sample_list[-1]) #V_H-1
+                        # ve = critic(z_hat_sample_list[-2].detach())
+                        # loss_critic = criterionCritic(V.detach(), ve)
+                        # loss_actor = criterionActor(
+                        #     a_sample_list[-1],
+                        #     torch.distributions.one_hot_categorical.OneHotCategorical(
+                        #         logits=a_logits_list[-1]
+                        #     ),
+                        #     V,
+                        #     ve.detach()
+                        # )
+                        # for t in range(H-2, -1, -1):
+                        #     V = r_hat_sample_list[t] + gamma_hat_sample_list[t] * ((1-lamb)*target(z_hat_sample_list[t+1]) + lamb*V)
+                        #     ve = critic(z_hat_sample_list[t].detach())
+                        #     loss_critic += criterionCritic(V.detach(), ve)
+                        #     loss_actor += criterionActor(
+                        #         a_sample_list[t],
+                        #         torch.distributions.one_hot_categorical.OneHotCategorical(
+                        #             logits=a_logits_list[t]
+                        #         ),
+                        #         V,
+                        #         ve.detach()
+                        #     )
 
-                    V = r_hat_sample_list[-1] + gamma_hat_sample_list[-1] * targets[-1] #V_H-1
-                    loss_critic, loss_dict_critic = criterionCritic(V.detach(), ves[-1])
-                    loss_actor, loss_dict_actor = criterionActor(
-                        a_sample_list[-1],
-                        torch.distributions.one_hot_categorical.OneHotCategorical(
-                            logits=a_logits_list[-1]
-                        ),
-                        V,
-                        ves[-1].detach()
-                    )
-                    c = zip(reversed(a_sample_list[:-1]), reversed(a_logits_list[:-1]), reversed(r_hat_sample_list[:-1]), reversed(gamma_hat_sample_list[:-1]), reversed(targets[:-1]), reversed(ves[:-1]))
-                    for a_sample, a_logits, r_hat_sample, gamma_hat_sample, target_v, ve in c:
-                        V = r_hat_sample + gamma_hat_sample * ((1-lamb)*target_v + lamb*V)
-                        _loss_critic, _loss_dict_critic = criterionCritic(V.detach(), ve)
-                        _loss_actor, _loss_dict_actor = criterionActor(
-                            a_sample,
+                        V = r_hat_sample_list[-1] + gamma_hat_sample_list[-1] * targets[-1] #V_H-1
+                        loss_critic, loss_dict_critic = criterionCritic(V.detach(), ves[-1])
+                        loss_actor, loss_dict_actor = criterionActor(
+                            a_sample_list[-1],
                             torch.distributions.one_hot_categorical.OneHotCategorical(
-                                logits=a_logits
+                                logits=a_logits_list[-1]
                             ),
                             V,
-                            ve.detach()
+                            ves[-1].detach()
                         )
-                        loss_actor += _loss_actor
-                        loss_critic += _loss_critic
-                        dict_sum(loss_dict_actor, _loss_dict_actor)
-                        dict_sum(loss_dict_critic, _loss_dict_critic)
+                        c = zip(reversed(a_sample_list[:-1]), reversed(a_logits_list[:-1]), reversed(r_hat_sample_list[:-1]), reversed(gamma_hat_sample_list[:-1]), reversed(targets[:-1]), reversed(ves[:-1]))
+                        for a_sample, a_logits, r_hat_sample, gamma_hat_sample, target_v, ve in c:
+                            V = r_hat_sample + gamma_hat_sample * ((1-lamb)*target_v + lamb*V)
+                            _loss_critic, _loss_dict_critic = criterionCritic(V.detach(), ve)
+                            _loss_actor, _loss_dict_actor = criterionActor(
+                                a_sample,
+                                torch.distributions.one_hot_categorical.OneHotCategorical(
+                                    logits=a_logits
+                                ),
+                                V,
+                                ve.detach()
+                            )
+                            loss_actor += _loss_actor
+                            loss_critic += _loss_critic
+                            dict_sum(loss_dict_actor, _loss_dict_actor)
+                            dict_sum(loss_dict_critic, _loss_dict_critic)
 
 
-                    loss_actor /= H
-                    loss_critic /= H
+                        loss_actor /= H
+                        loss_critic /= H
 
-                    for k in loss_dict_actor:
-                        loss_dict_actor[k] /= H
-                    writer.add_scalars('loss_actor', loss_dict_actor, iternum)
-                    for k in loss_dict_critic:
-                        loss_dict_critic[k] /= H
-                    writer.add_scalars('loss_critic', loss_dict_critic, iternum)
+                        for k in loss_dict_actor:
+                            loss_dict_actor[k] /= H
+                        writer.add_scalars('loss_actor', loss_dict_actor, iternum)
+                        for k in loss_dict_critic:
+                            loss_dict_critic[k] /= H
+                        writer.add_scalars('loss_critic', loss_dict_critic, iternum)
 
                     #update actor
-                    loss_actor.backward()
-                    loss_critic.backward()
+                    scaler.scale(loss_actor).backward()
+                    # loss_actor.backward()
+                    scaler.unscale_(optim_actor)
                     torch.nn.utils.clip_grad_norm_(actor.parameters(), gradient_clipping)
-                    optim_actor.step()
+                    scaler.step(optim_actor)
+                    # optim_actor.step()
                     optim_actor.zero_grad()
                     optim_model.zero_grad()
 
                     #update critic
+                    scaler.scale(loss_critic).backward()
+                    # loss_critic.backward()
+                    scaler.unscale_(optim_critic)
                     torch.nn.utils.clip_grad_norm_(critic.parameters(), gradient_clipping)
-                    optim_critic.step()
+                    scaler.step(optim_critic)
+                    # optim_critic.step()
                     optim_critic.zero_grad()
                     optim_target.zero_grad()
+                    scaler.update()
 
                     #clear all
                     r_hat_sample_list.clear()
@@ -479,16 +487,16 @@ for K in K_list:
                         with torch.no_grad():
                             target.load_state_dict(critic.state_dict())
                 
-                    # # display
-                    # pbar.set_postfix(
-                    #     l_world = loss_model.item(),
-                    #     l_actor = loss_actor.item(),
-                    #     l_critic = loss_critic.item(),
-                    #     len_h_e = len(replay.memory),
-                    #     iternum=iternum,
-                    #     last_rew=sum(replay.memory[-1][2::4]),
-                    #     steps=step_counter[0],
-                    # )
+                    # display
+                    pbar.set_postfix(
+                        l_world = loss_model.item(),
+                        l_actor = loss_actor.item(),
+                        l_critic = loss_critic.item(),
+                        len_h_e = len(replay.memory),
+                        iternum=iternum,
+                        last_rew=sum(replay.memory[-1][2::4]),
+                        steps=step_counter[0],
+                    )
                     # print(a_logits_list[0][0].detach())
             # print([list(z_hat_sample_list[_][0,1].detach().cpu().numpy().round()).index(1) for _ in range(len(z_hat_sample_list))])
             # print([(z_hat_sample_list[_][0] == z_hat_sample_list[_+1][0]).float().mean().item() for _ in range(len(z_hat_sample_list)-1)])
@@ -516,7 +524,7 @@ for K in K_list:
             plt.imsave(
                 "img.png",
                 np.clip(
-                    x_hat[0].detach().expand(3, -1, -1).cpu().numpy().transpose(1,2,0) / 2 + 0.25,
+                    x_hat[0, 0].detach().expand(3, -1, -1).cpu().numpy().transpose(1,2,0) / 2 + 0.25,
                     0,
                     1
                 )
