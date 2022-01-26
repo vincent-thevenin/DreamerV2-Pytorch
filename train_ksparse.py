@@ -24,15 +24,17 @@ from dataset import ModelDataset, ReplayQueue
 from model_accurate import WorldModel, Actor, Critic, LossModel, ActorLoss, CriticLoss
 
 class Timer():
-    def __init__(self, name):
+    def __init__(self, name, verbose=False):
         self.name = name
+        self.verbose = verbose
 
     def __enter__(self):
         self.start = time()
 
     def __exit__(self, *args):
         self.end = time()
-        print(f'Time {self.name}: {self.end - self.start}s')
+        if self.verbose:
+            print(f'Time {self.name}: {self.end - self.start}s')
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
