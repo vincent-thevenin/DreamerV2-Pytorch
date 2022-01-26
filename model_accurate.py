@@ -17,9 +17,7 @@ class WorldModel(nn.Module):
         # Experiments
         self.has_noise = has_noise
         self.noise_std = noise_std
-
         self.is_sample_average = is_sample_average
-
 
         #Recurrent Model (RSSM): ((z, a), h) -> h
         self.gru_mlp = nn.Sequential(
@@ -125,7 +123,7 @@ class WorldModel(nn.Module):
 
         return h
 
-    def compute_z(self, x, h, k=1, has_grad=True):
+    def compute_z(self, x_embedding, h, k=1, has_grad=True):
         """
         In:
             x: x_t
@@ -134,11 +132,10 @@ class WorldModel(nn.Module):
             z_logit:  logits of z_t
             z_sample: z_t
         """
-        embedding = self.representation_model_conv(x)
-        embedding = embedding.reshape(x.shape[0], -1)
+        x_embedding = x_embedding.reshape(x_embedding.shape[0], -1)
 
-        embedding = torch.cat((h, embedding), dim=1)
-        z_logits = self.representation_model_mlp(embedding)
+        x_embedding = torch.cat((h, x_embedding), dim=1)
+        z_logits = self.representation_model_mlp(x_embedding)
         z_sample = torch.distributions.one_hot_categorical.OneHotCategorical(
             logits=z_logits.reshape(-1, 32, 32)
         ).sample([k])
@@ -205,6 +202,7 @@ class WorldModel(nn.Module):
         h = self.compute_h(x.shape[0], x.device, a, h, z)
 
         #no straight-though gradient
+        x = self.representation_model_conv(x)
         z_logits, z_sample = self.compute_z(x, h, k, has_grad=False)
 
         return z_sample, h
@@ -236,24 +234,77 @@ class WorldModel(nn.Module):
         return z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, (z_hat_sample, r_hat_sample, gamma_hat_sample)
 
     def train(self, a, x, z, h, k=1):
-        h = self.compute_h(x.shape[0], x.device, a, h, z)
+        z_logits, z_hat_logits = [], []
+        z_samples = []
+        r_hats, gamma_hats = [], []
+        h_list = []
+        x_shape = x.shape
 
-        z_logits, z_sample = self.compute_z(x, h, k, has_grad=True)
+        x = self.representation_model_conv(x.reshape(-1, *x_shape[-3:]))
+        x = x.reshape(*x_shape[:2], -1)
 
-        z_hat_logits = self.transition_predictor(h)
+        h = self.compute_h(x.shape[0], x.device, a=None, h=None, z=None)
+        h_list.append(h.unsqueeze(1))
+
+        z_logit, z_sample = self.compute_z(x[:, 0], h, k, has_grad=True)
+        z_logits.append(z_logit.unsqueeze(1))
+        z_samples.append(z_sample.unsqueeze(1))
+
+        z_hat_logit = self.transition_predictor(h)
+        z_hat_logits.append(z_hat_logit.unsqueeze(1))
         z_hat_sample = None
 
         h_z = torch.cat((h, z_sample.reshape(-1, 32*32)), dim=1)
 
         r_hat = self.r_predictor_mlp(h_z)
+        r_hats.append(r_hat.unsqueeze(1))
 
         gamma_hat = self.gamma_predictor_mlp(h_z)
+        gamma_hats.append(gamma_hat.unsqueeze(1))
 
-        x_hat = self.compute_x_hat(h_z)
-
+        x_hat = self.x_hat_predictor_mlp(h_z).reshape(-1, 1, 32 * 48, 1, 1)
+        
         r_hat_sample, gamma_hat_sample = None, None
+
+        for t in range(a.shape[1]):
+            h = self.compute_h(x.shape[0], x.device, a=a[:,t], h=h, z=z_sample)
+            h_list.append(h.unsqueeze(1))
+
+            z_logit, z_sample = self.compute_z(x[:, t+1], h, k, has_grad=True)
+            z_logits.append(z_logit.unsqueeze(1))
+            z_samples.append(z_sample.unsqueeze(1))
+
+            z_hat_logit = self.transition_predictor(h)
+            z_hat_logits.append(z_hat_logit.unsqueeze(1))
+
+            h_z = torch.cat((h, z_sample.reshape(-1, 32*32)), dim=1)
+
+            r_hat = self.r_predictor_mlp(h_z)
+            r_hats.append(r_hat.unsqueeze(1))
+
+            gamma_hat = self.gamma_predictor_mlp(h_z)
+            gamma_hats.append(gamma_hat.unsqueeze(1))
+
+            x_hat = torch.cat(
+                (
+                    x_hat,
+                    self.x_hat_predictor_mlp(h_z).reshape(-1, 1, 32 * 48, 1, 1)
+                ),
+                dim=1
+            )
     
-        return z_logits, z_sample, z_hat_logits, x_hat, r_hat, gamma_hat, h, (z_hat_sample, r_hat_sample, gamma_hat_sample)
+        x_hat = self.image_predictor_conv(
+            x_hat.reshape(-1, 32 * 48, 1, 1)
+        ).reshape(*x_shape)
+
+        z_logits = torch.cat(z_logits, dim=1)
+        z_samples = torch.cat(z_samples, dim=1)
+        z_hat_logits = torch.cat(z_hat_logits, dim=1)
+        r_hats = torch.cat(r_hats, dim=1)
+        gamma_hats = torch.cat(gamma_hats, dim=1)
+        h_list = torch.cat(h_list, dim=1)
+
+        return z_logits, z_samples, z_hat_logits, x_hat, r_hats, gamma_hats, h_list, (z_hat_sample, r_hat_sample, gamma_hat_sample)
 
 
     def forward(self, a, x, z, h=None, dream=False, inference=False, k=1):
