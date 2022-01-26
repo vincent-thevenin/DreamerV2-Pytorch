@@ -340,9 +340,9 @@ for K in K_list:
                         writer.add_scalars('loss_model', loss_dict_model, iternum)
                         loss_model /= a.shape[1]
 
-                with Timer("backward"):
+                with Timer("backward model"):
                     scaler.scale(loss_model).backward()
-                with Timer("optim"):
+                with Timer("optim model"):
                     scaler.unscale_(optim_model)
                     torch.nn.utils.clip_grad_norm_(world.parameters(), gradient_clipping)
                     scaler.step(optim_model)
@@ -350,7 +350,7 @@ for K in K_list:
                     # optim_model.zero_grad()
 
             ### Train actor critic ###
-            with Timer("Actor Critic"):
+            with Timer("Actor Critic", True):
                 if step_counter[0] > 0:
                     #store every value to compute V since we sum backwards
                     r_hat_sample_list = []
