@@ -89,9 +89,9 @@ for K in K_list:
 
     batch = 50
     L = 50 #seq len world training
-    replay_capacity_steps = 2e4 #1e5
-    prefill_steps = 500
-    max_steps = 200_000_000/action_repeat if env_name == "Qbert-v0" else 2_000_000
+    prefill_steps = 50_000
+    replay_capacity_steps = max(2e4, prefill_steps) #1e5
+    max_steps = 200_000_000//action_repeat if is_atari else 2_000_000
     lr_world = 2e-4
     train_every = 16
     K = K #ksparse
