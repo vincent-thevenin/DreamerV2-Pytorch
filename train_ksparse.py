@@ -222,6 +222,7 @@ for K in K_list:
                     replay.push(copy.deepcopy(episode)) if len(episode) > 0 else None
                     episode.clear()
                     episode.append(obs)
+                    step_counter[0] += 1
                     
                     z_sample, h = world(None, obs.to(device), None, inference=True, k=k)
                     done = False
