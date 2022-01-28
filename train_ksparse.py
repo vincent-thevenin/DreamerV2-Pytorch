@@ -351,7 +351,7 @@ for K in K_list:
                     # optim_model.zero_grad()
 
             ### Train actor critic ###
-            with Timer("Actor Critic", True):
+            with Timer("Actor Critic"):
                 if step_counter[0] > 0:
                     with autocast(enabled=True):
                         #store every value to compute V since we sum backwards
@@ -457,6 +457,8 @@ for K in K_list:
                     #update actor
                     scaler.scale(loss_actor).backward()
                     # loss_actor.backward()
+                    scaler.scale(loss_critic).backward()
+                    # loss_critic.backward()
                     scaler.unscale_(optim_actor)
                     torch.nn.utils.clip_grad_norm_(actor.parameters(), gradient_clipping)
                     scaler.step(optim_actor)
@@ -465,8 +467,6 @@ for K in K_list:
                     optim_model.zero_grad()
 
                     #update critic
-                    scaler.scale(loss_critic).backward()
-                    # loss_critic.backward()
                     scaler.unscale_(optim_critic)
                     torch.nn.utils.clip_grad_norm_(critic.parameters(), gradient_clipping)
                     scaler.step(optim_critic)
